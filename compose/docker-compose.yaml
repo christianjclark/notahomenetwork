@@ -1,0 +1,140 @@
+# Home Network v2 - Christian Clark
+# Launch using *docker compose --env-file .env up* - specify the specific .env file you need to use, this will likely be .env
+# Docker Port Mapping is done with the external port to the machine (systemhostname:8080) and the internal port to the container (8080), eg; 8080:8080.
+
+version: '3'
+
+services:
+  #
+  # WatchTower - Automatic Updates for Docker Images (No external ports needed)
+  #
+  watchtower-utility:
+    image: containrrr/watchtower
+    restart: always
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /etc/timezone:/etc/timezone:ro
+    environment:
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_LABEL_ENABLE=true
+      - WATCHTOWER_INCLUDE_RESTARTING=true
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+  #
+  # Nginx Proxy Manager - Front end Reverse Proxy for securing and enabling access of Internal apps to the world (Port 80 and 443 are fronted to WAN)
+  # Mapped 1:1 IP address from Internal VyOS router.
+  #
+  frontedproxy-app:
+    image: 'jc21/nginx-proxy-manager:latest'
+    restart: always
+    ports:
+      - '80:80' # Public HTTP Port
+      - '443:443' # Public HTTPS Port
+      - '81:81' # Admin Web Port
+    volumes:
+      - ./data:/data
+      - ./letsencrypt:/etc/letsencrypt
+    networks:
+      - frontedProxyDB
+  #
+  # MySQL Database for Nginx Proxy Manager
+  #
+  frontedproxy-db:
+    image: 'jc21/mariadb-aria:latest'
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: 'Ng1nxPr0xyM4nager'
+      MYSQL_DATABASE: 'npm'
+      MYSQL_USER: 'npm'
+      MYSQL_PASSWORD: 'Ng1nxPr0xyM4nager'
+    volumes:
+      - ./appdata/ProxyMySQL/data:/var/lib/mysql
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    networks:
+      - frontedProxyDB
+    ---
+  #
+  # Automated Movie Management and Download
+  #
+  radarr-app:
+    image: lscr.io/linuxserver/radarr:latest
+    container_name: radarr
+    environment:
+      - PUID=$PUID
+      - PGID=$PGID
+      - TZ=$TIMEZONE
+    volumes:
+      - ./appdata/Radarr/configuration:/config
+      - "$NAS_MEDIA/movies:/movies" 
+    ports:
+      - 7878:7878
+    restart: always
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+  #
+  # Automated Show Management and Download
+  #
+  sonarr-app:
+    image: lscr.io/linuxserver/sonarr:latest
+    container_name: sonarr
+    environment:
+      - PUID=$PUID
+      - PGID=$PGID
+      - TZ=$TIMEZONE
+    volumes:
+      - ./appdata/Sonarr/configuration:/config
+      - "$NAS_MEDIA/TV Shows:/tv"
+    ports:
+      - 8989:8989
+    restart: always
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+  #
+  # Results proxy for *arr applications
+  #
+  jackett-app:
+    image: lscr.io/linuxserver/jackett:latest
+    container_name: jackett
+    environment:
+      - PUID=$PUID
+      - PGID=$PGID
+      - TZ=$TIMEZONE
+    volumes:
+      - ./appdata/Jackett/configuration:/config
+    ports:
+      - 9117:9117
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    restart: unless-stopped
+  #
+  # Intranet Dashboard for Local Applications  
+  #
+  homarr-app:
+    container_name: homarr
+    image: ghcr.io/ajnart/homarr:latest
+    restart: always
+    volumes:
+      - ./appdata/Homarr/configuration:/app/data/configs
+      - ./appdata/Homarr/icons:/app/public/icons
+    ports:
+      - '7575:7575'
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+  #
+  # Self Hosted RSS Reader
+  #
+  freshrss-app:
+    image: lscr.io/linuxserver/freshrss:latest
+    container_name: freshrss
+    environment:
+      - PUID=$PUID
+      - PGID=$PGID
+      - TZ=$TIMEZONE
+    volumes:
+      - ./appdata/FreshRSS/configuration:/config
+    ports:
+      - 8584:80
+    restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
